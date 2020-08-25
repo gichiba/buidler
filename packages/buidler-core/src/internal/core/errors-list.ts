@@ -541,6 +541,7 @@ Please double check how you invoked Buidler or run your task.`,
       description: `Tried to resolve a non-existing Solidity file as an entry-point.`,
       shouldBeReported: false,
     },
+    // Deprecated
     FILE_OUTSIDE_PROJECT: {
       number: 401,
       message: "File %file% is outside the project.",
@@ -550,6 +551,7 @@ Please double check how you invoked Buidler or run your task.`,
 This is disabled for security reasons.`,
       shouldBeReported: false,
     },
+    // Deprecated
     LIBRARY_FILE_NOT_LOCAL: {
       number: 402,
       message:
@@ -578,6 +580,7 @@ Please double check your imports or install the missing dependency.`,
 Please double check your imports or update your libraries.`,
       shouldBeReported: false,
     },
+    // Deprecated
     ILLEGAL_IMPORT: {
       number: 405,
       message: "Illegal import %imported% from %from%",
@@ -587,6 +590,7 @@ Please double check your imports or update your libraries.`,
 This is disabled for security reasons.`,
       shouldBeReported: false,
     },
+    // Deprecated
     FILE_OUTSIDE_LIB: {
       number: 406,
       message:
@@ -605,6 +609,105 @@ This is disabled for security reasons.`,
 
 Please double check your imports.`,
       shouldBeReported: false,
+    },
+    INVALID_IMPORT_BACKSLASH: {
+      number: 408,
+      message:
+        "Invalid import %imported% from %name%. Imports must use / instead of \\",
+      title: "Invalid import: use / instead of \\",
+      description: `A Solidity file is trying to import another one with its relative path and is using backslashes (\\) insteado of slashes (/).
+      
+You must always use slashes (/) in Solidity imports.`,
+      shouldBeReported: false,
+    },
+    INVALID_IMPORT_PROTOCOL: {
+      number: 409,
+      message:
+        "Invalid import %imported% from %name%. Buidler doesn't support imports via %protocol%.",
+      title: "Invalid import: trying to use an unsupported protocol",
+      description: `A Solidity file is trying to import another one with using an unsupported protocol, like http.
+      
+You can only import files thar are available locally or installed through npm.`,
+      shouldBeReported: false,
+    },
+    INVALID_IMPORT_ABSOLUTE_PATH: {
+      number: 410,
+      message:
+        "Invalid import %imported% from %name%. Buidler doesn't support imports with absolute paths.",
+      title: "Invalid import: absolute paths unsupported",
+      description: `A Solidity file is trying to import another one with using its absolute path.
+      
+This is not supported, as it would lead to hard to reproduce compilations.`,
+      shouldBeReported: false,
+    },
+    INVALID_IMPORT_OUTSIDE_OF_PROJECT: {
+      number: 411,
+      message:
+        "Invalid import %imported% from %name%. The file being imported is outside of the project",
+      title: "Invalid import: file outside of the project",
+      description: `A Solidity file is trying to import another one that is outside of the project.
+      
+This is not supported by Buidler.`,
+      shouldBeReported: false,
+    },
+    INVALID_IMPORT_WRONG_CASING: {
+      number: 412,
+      message:
+        "Imported %imported% from %name%, but it wasn't found because Buidler's compiler is case sensitive.",
+      title: "Invalid import: wrong file casing",
+      description: `A Solidity file is trying to import another one but its source name casing was wrong.
+      
+Buidler's compiler is case sensitive to ensure projects are portable across different operating systems.`,
+      shouldBeReported: false,
+    },
+    WRONG_SOURCE_NAME_CASING: {
+      number: 413,
+      message:
+        "Trying to resolve the file %incorrect% but its correct case-sensitive name is %correct%",
+      title: "Incorrect source name casing",
+      description: `You tried to resolve a Solidity file with an incorrect casing.
+      
+Buidler's compiler is case sensitive to ensure projects are portable across different operating systems.`,
+      shouldBeReported: false,
+    },
+    INVALID_SOURCE_NAME_ABSOLUTE_PATH: {
+      number: 414,
+      message:
+        "Trying to resolve the file %name% but found an absolute path instead of a source name.",
+      title: "Invalid source name: absolute path",
+      description: `A Solidity source name was being resolved, but its absolute path was provided instead of its source name.
+      
+If you aren't overriding compilation-related tasks, please report this as a bug.`,
+      shouldBeReported: true,
+    },
+    INVALID_SOURCE_NAME_RELATIVE_PATH: {
+      number: 415,
+      message:
+        "Trying to resolve the file %name% but found a relative path instead of a source name.",
+      title: "Invalid source name: relative path",
+      description: `A Solidity source name was being resolved, but its relative path was provided instead of its source name.
+      
+If you aren't overriding compilation-related tasks, please report this as a bug.`,
+      shouldBeReported: true,
+    },
+    INVALID_SOURCE_NAME_BACKSLASHES: {
+      number: 416,
+      message:
+        "Trying to resolve the file %name% but it uses backslashes (\\) instead of slashes (/).",
+      title: "Invalid source name: backslashes",
+      description: `A Solidity source name was being resolved, but it uses backslashes (\\) instead of slashes (/).
+      
+If you aren't overriding compilation-related tasks, please report this as a bug.`,
+      shouldBeReported: true,
+    },
+    INVALID_SOURCE_NOT_NORMALIZED: {
+      number: 417,
+      message: "Trying to resolve the file %name% but it wasn't normalized",
+      title: "Invalid source name: not normalized",
+      description: `A Solidity source name was being resolved, but it it wasn't normalized. It probably contains some "." or "..".
+      
+If you aren't overriding compilation-related tasks, please report this as a bug.`,
+      shouldBeReported: true,
     },
   },
   SOLC: {

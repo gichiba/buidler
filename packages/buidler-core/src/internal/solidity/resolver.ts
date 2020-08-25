@@ -22,6 +22,8 @@ interface FileContent {
   versionPragmas: string[];
 }
 
+const NODE_MODULES = "node_modules";
+
 export class ResolvedFile {
   public readonly library?: LibraryInfo;
 
@@ -69,20 +71,37 @@ export class Resolver {
    * @param sourceName The source name as it would be provided to solc.
    */
   public async resolveSourceName(sourceName: string): Promise<ResolvedFile> {
+    // Invalid source name:
+    //  * Absolute
+    //  * start with .
+    //  * backslash
+    //  * normalized -- i.e. no a/../
     if (path.isAbsolute(sourceName)) {
-      throw new Error("Source names shouldn't be absolute");
+      throw new BuidlerError(
+        ERRORS.RESOLVER.INVALID_SOURCE_NAME_ABSOLUTE_PATH,
+        { name: sourceName }
+      );
     }
 
     if (sourceName.startsWith(".")) {
-      throw new Error("Source names can't start with .");
+      throw new BuidlerError(
+        ERRORS.RESOLVER.INVALID_SOURCE_NAME_RELATIVE_PATH,
+        { name: sourceName }
+      );
     }
 
+    // We check this before normalizing so we are sure that the difference
+    // comes from slash vs backslash
     if (slash(sourceName) !== sourceName) {
-      throw new Error("Source names should use / and not \\");
+      throw new BuidlerError(ERRORS.RESOLVER.INVALID_SOURCE_NAME_BACKSLASHES, {
+        name: sourceName,
+      });
     }
 
-    if (slash(path.normalize(sourceName)) !== sourceName) {
-      throw new Error("Source names should not include ../ or ./ ");
+    if (this._normalizePath(sourceName) !== sourceName) {
+      throw new BuidlerError(ERRORS.RESOLVER.INVALID_SOURCE_NOT_NORMALIZED, {
+        name: sourceName,
+      });
     }
 
     if (await this._isSourceNameFromLocalSourceFile(sourceName)) {
@@ -92,18 +111,76 @@ export class Resolver {
     return this._resolveLibrarySourceName(sourceName);
   }
 
+  /**
+   * Resolves an import from an already resolved file.
+   * @param from The file were the import statement is present.
+   * @param imported The path in the import statement.
+   */
   public async resolveImport(
     from: ResolvedFile,
     imported: string
   ): Promise<ResolvedFile> {
-    if (!this._isRelativeImport(imported)) {
-      // TODO: What if it's not relative but more like: asd/../.../asd.
-      //  Should it fail? How?
-      return this.resolveSourceName(imported);
+    const scheme = this._getUriScheme(imported);
+    if (scheme !== undefined) {
+      throw new BuidlerError(ERRORS.RESOLVER.INVALID_IMPORT_PROTOCOL, {
+        from: from.globalName,
+        imported,
+        protocol: scheme,
+      });
     }
 
-    const sourceName = await this._relativeImportToSourceName(from, imported);
-    return this.resolveSourceName(sourceName);
+    if (slash(imported) !== imported) {
+      throw new BuidlerError(ERRORS.RESOLVER.INVALID_IMPORT_BACKSLASH, {
+        from: from.globalName,
+        imported,
+      });
+    }
+
+    if (path.isAbsolute(imported)) {
+      throw new BuidlerError(ERRORS.RESOLVER.INVALID_IMPORT_ABSOLUTE_PATH, {
+        from: from.globalName,
+        imported,
+      });
+    }
+
+    try {
+      if (!this._isRelativeImport(imported)) {
+        return this.resolveSourceName(this._normalizePath(imported));
+      }
+
+      const sourceName = await this._relativeImportToSourceName(from, imported);
+      return this.resolveSourceName(sourceName);
+    } catch (error) {
+      if (BuidlerError.isBuidlerError(error)) {
+        if (
+          error.number === ERRORS.RESOLVER.FILE_NOT_FOUND.number ||
+          error.number === ERRORS.RESOLVER.LIBRARY_FILE_NOT_FOUND.number
+        ) {
+          throw new BuidlerError(
+            ERRORS.RESOLVER.IMPORTED_FILE_NOT_FOUND,
+            {
+              imported,
+              from: from.globalName,
+            },
+            error
+          );
+        }
+
+        if (error.number === ERRORS.RESOLVER.WRONG_CASING.number) {
+          throw new BuidlerError(
+            ERRORS.RESOLVER.INVALID_IMPORT_WRONG_CASING,
+            {
+              imported,
+              from: from.globalName,
+            },
+            error
+          );
+        }
+      }
+
+      // tslint:disable-next-line only-buidler-error
+      throw error;
+    }
   }
 
   private async _resolveLocalSourceName(
@@ -126,12 +203,13 @@ export class Resolver {
 
     let packagePath;
     try {
-      packagePath = this._resolveFromProjectRoot(
+      packagePath = this._resolveNodeModulesFileFromProjectRoot(
         path.join(libraryName, "package.json")
       );
     } catch (error) {
-      // if the project is using a dependency from buidler itself but it can't be found, this means that a global
-      // installation is being used, so we resolve the dependency relative to this file
+      // if the project is using a dependency from buidler itself but it can't
+      // be found, this means that a global installation is being used, so we
+      // resolve the dependency relative to this file
       if (libraryName === "@nomiclabs/buidler") {
         const buidlerCoreDir = path.join(__dirname, "..", "..");
         packagePath = path.join(buidlerCoreDir, "package.json");
@@ -146,7 +224,7 @@ export class Resolver {
       }
     }
 
-    const nodeModulesPath = path.dirname(packagePath);
+    const nodeModulesPath = path.dirname(path.dirname(packagePath));
 
     await this._validateSourceNameExistenceAndCasing(
       sourceName,
@@ -169,24 +247,33 @@ export class Resolver {
     from: ResolvedFile,
     imported: string
   ): Promise<string> {
+    const sourceName = this._normalizePath(
+      path.join(path.dirname(from.globalName), imported)
+    );
+
     if (from.library === undefined) {
-      const NM = "node_modules";
-      const nmIndex = imported.indexOf(NM);
+      const nmIndex = sourceName.indexOf(`${NODE_MODULES}/`);
       if (nmIndex !== -1) {
-        return imported.substr(nmIndex + NM.length + 1);
+        return sourceName.substr(nmIndex + NODE_MODULES.length + 1);
       }
     }
 
-    if (slash(imported) !== imported) {
-      throw new Error("Imports should use / and not \\");
-    }
-
-    const sourceName = slash(
-      path.normalize(path.join(from.globalName, imported))
-    );
-
     if (sourceName.startsWith("../")) {
-      throw new Error("Invalid relative import. Too many ../'s");
+      // If the file with the import is local, and the normalized version
+      // starts with ../ means that it's trying to get outside of the project.
+      if (from.library === undefined) {
+        throw new BuidlerError(
+          ERRORS.RESOLVER.INVALID_IMPORT_OUTSIDE_OF_PROJECT,
+          { from: from.globalName, imported }
+        );
+      }
+
+      // If the file is being imported from a library, this means that it's
+      // trying to reach another one.
+      throw new BuidlerError(ERRORS.RESOLVER.ILLEGAL_IMPORT, {
+        from: from.globalName,
+        imported,
+      });
     }
 
     return sourceName;
@@ -195,7 +282,7 @@ export class Resolver {
   private async _isSourceNameFromLocalSourceFile(
     sourceName: string
   ): Promise<boolean> {
-    if (sourceName.includes("node_modules")) {
+    if (sourceName.includes(NODE_MODULES)) {
       return false;
     }
 
@@ -237,21 +324,21 @@ export class Resolver {
     return imported.startsWith("./") || imported.startsWith("../");
   }
 
-  private _resolveFromProjectRoot(fileName: string) {
+  private _resolveNodeModulesFileFromProjectRoot(fileName: string) {
     return require.resolve(fileName, {
       paths: [this._projectRoot],
     });
   }
 
-  private _getLibraryName(globalName: string): string {
-    if (globalName.startsWith("@")) {
-      return globalName.slice(
+  private _getLibraryName(sourceName: string): string {
+    if (sourceName.startsWith("@")) {
+      return sourceName.slice(
         0,
-        globalName.indexOf("/", globalName.indexOf("/") + 1)
+        sourceName.indexOf("/", sourceName.indexOf("/") + 1)
       );
     }
 
-    return globalName.slice(0, globalName.indexOf("/"));
+    return sourceName.slice(0, sourceName.indexOf("/"));
   }
 
   private async _validateSourceNameExistenceAndCasing(
@@ -264,7 +351,8 @@ export class Resolver {
     let trueCaseSourceName: string;
     try {
       const tcp = await trueCasePath(sourceName, fromDir);
-      trueCaseSourceName = slash(path.relative(this._projectRoot, tcp));
+      // We only want to make sure that we are using / here
+      trueCaseSourceName = slash(path.relative(fromDir, tcp));
     } catch (error) {
       if (
         typeof error.message === "string" &&
@@ -284,9 +372,24 @@ export class Resolver {
     }
 
     if (trueCaseSourceName !== sourceName) {
-      throw new Error(
-        `Invalid casing. Trying to import ${sourceName} but probably meant ${trueCaseSourceName}`
-      );
+      throw new BuidlerError(ERRORS.RESOLVER.WRONG_SOURCE_NAME_CASING, {
+        incorrect: sourceName,
+        correct: trueCaseSourceName,
+      });
     }
+  }
+
+  private _normalizePath(p: string): string {
+    return slash(path.normalize(p));
+  }
+
+  private _getUriScheme(s: string): string | undefined {
+    const re = /([a-zA-Z]+):\/\//;
+    const match = re.exec(s);
+    if (match === null) {
+      return undefined;
+    }
+
+    return match[1];
   }
 }
